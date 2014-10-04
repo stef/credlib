@@ -1,0 +1,3 @@
+credlib-0.09 - 17-Mar-2007 - Michael Halcrow
+
+        * added makefile target for libcred.so (shared library)
