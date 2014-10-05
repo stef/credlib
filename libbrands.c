@@ -6,7 +6,7 @@
 BRANDS* BRANDS_new( void ) {
     EXCEPTION;
     BRANDS* b = NULL;
-    
+
     TRYM( b = (BRANDS*)CREDLIB_malloc( sizeof( BRANDS ) ) );
     b->state = brands_undef;
     b->issuer = false;
@@ -92,7 +92,7 @@ int BRANDS_free( BRANDS* b ) {
 int BRANDS_key_set( BRANDS* b, BRANDS* issuer ) {
     EXCEPTION;
     if ( !b || !issuer || !issuer->params || !issuer->g ) {
-	THROW( CREDLIB_NULL_PTR ); 
+	THROW( CREDLIB_NULL_PTR );
     }
     b->issuer = false;
     b->params = issuer->params;
@@ -105,7 +105,7 @@ int BRANDS_key_set( BRANDS* b, BRANDS* issuer ) {
     return ret;
 }
 
-int BRANDS_key_generate( BRANDS* b, DSA* params, int key_size, 
+int BRANDS_key_generate( BRANDS* b, DSA* params, int key_size,
 			 int num_attribs ) {
     EXCEPTION;
     int i;
@@ -114,9 +114,11 @@ int BRANDS_key_generate( BRANDS* b, DSA* params, int key_size,
     if ( b->state != brands_init ) { THROW( CREDLIB_CALL_SEQUENCE ); }
     if ( !params ) {
 	if ( key_size == 0 ) { key_size = CREDLIB_BRANDS_DEFAULT_KEY_SIZE; }
-	params = DSA_generate_parameters( key_size, NULL, 0, 
-					  NULL,NULL,NULL,NULL );
-	if ( !params ) { THROW( CREDLIB_MATH_LIB_ERROR ); }
+
+   params = DSA_new();
+   if (!params) { THROW( CREDLIB_OUT_OF_MEMORY ); }
+   if (!DSA_generate_parameters_ex(params, key_size,NULL,0,NULL,
+            NULL,NULL)) { THROW( CREDLIB_MATH_LIB_ERROR ); }
     }
     b->issuer = true;
     b->params = params;
@@ -127,12 +129,12 @@ int BRANDS_key_generate( BRANDS* b, DSA* params, int key_size,
     b->num_attribs = ++num_attribs; /* need extra 1 for user private key */
     TRYM( b->y = CREDLIB_BN_array_malloc( num_attribs ) );
     TRYM( b->g = CREDLIB_BN_array_malloc( num_attribs ) );
-    
+
     for ( i = 0; i < num_attribs; i++ ) {
 	TRY( CREDLIB_rand_range( b->y[i], 1, b->params->q ) );
 	TRACE( printf( "y[%d] = ", i ); PRINT( "", b->y[i] ) );
 	/* g_i = g^y_i mod p */
-	TRYL( BN_mod_exp( b->g[i], b->params->g, b->y[i], 
+	TRYL( BN_mod_exp( b->g[i], b->params->g, b->y[i],
 			  b->params->p, b->ctx ) );
 	TRACE( printf( "g[%d] = ", i ); PRINT( "", b->g[i] ) );
     }
@@ -154,8 +156,8 @@ int BRANDS_user_attrib_set( BRANDS* b, uint_t i, void* attr, int attr_len ) {
 
     if ( !b || !b->x || !b->params->q ) { THROW( CREDLIB_NULL_PTR ); }
 
-    if ( b->state != brands_key || b->issuer ) { 
-	THROW( CREDLIB_CALL_SEQUENCE ); 
+    if ( b->state != brands_key || b->issuer ) {
+	THROW( CREDLIB_CALL_SEQUENCE );
     }
 
     if ( i > b->num_attribs-1 ) {
@@ -174,15 +176,15 @@ int BRANDS_user_attrib_set( BRANDS* b, uint_t i, void* attr, int attr_len ) {
     return ret;
 }
 
-static 
+static
 int brands_user_request_precompute( BRANDS* b ) {
     EXCEPTION;
-    
+
     if ( !b ) { THROW( CREDLIB_NULL_PTR ); }
-    if ( b->state != brands_key || b->issuer ) { 
-	THROW( CREDLIB_CALL_SEQUENCE ); 
+    if ( b->state != brands_key || b->issuer ) {
+	THROW( CREDLIB_CALL_SEQUENCE );
     }
-    
+
     /* not much can be done as don't know x_1 .. x_n yet */
 
     /* alpha = x_0 = rand Z_q* */
@@ -208,7 +210,7 @@ int BRANDS_user_request( BRANDS* b, byte** out, int* out_len ) {
 
     if ( !b || !b->x ) { THROW( CREDLIB_NULL_PTR ); }
 
-    if ( ( b->state != brands_key && b->state != brands_req_pre ) || 
+    if ( ( b->state != brands_key && b->state != brands_req_pre ) ||
 	 b->issuer ) {
 	THROW( CREDLIB_CALL_SEQUENCE );
     }
@@ -236,7 +238,7 @@ int BRANDS_user_request( BRANDS* b, byte** out, int* out_len ) {
     return ret;
 }
 
-int BRANDS_issuer_challenge( BRANDS* b, byte* in, int in_len, 
+int BRANDS_issuer_challenge( BRANDS* b, byte* in, int in_len,
 			     byte** out, int* out_len ) {
     EXCEPTION;
     BIGNUM* tmp = NULL;
@@ -251,8 +253,8 @@ int BRANDS_issuer_challenge( BRANDS* b, byte* in, int in_len,
     TRYIO_start( in );
     if ( b->x ) { num_attribs = b->num_attribs; }
     TRYIO( CREDLIB_read_bn_array( ptr, &b->x, &num_attribs, 1 ) );
-    if ( num_attribs != b->num_attribs ) { 
-	THROW( CREDLIB_IO_INCONSISTENCY ); 
+    if ( num_attribs != b->num_attribs ) {
+	THROW( CREDLIB_IO_INCONSISTENCY );
     }
 
     TRACE( for ( i = 1; i < b->num_attribs; i++ ) {
@@ -289,24 +291,24 @@ int BRANDS_issuer_challenge( BRANDS* b, byte* in, int in_len,
     if ( TRYIO_len( *out ) != req_len ) { THROW( CREDLIB_IO_INCONSISTENCY ); }
     TRACE( PRINT( "os = ", b->s ) );
     b->state = brands_chal;
-    
+
  cleanup:
     FINALLY( CREDLIB_CALL_SEQUENCE ) { RESET(); }
     if ( tmp ) { BN_free( tmp ); }
     return ret;
 }
 
-static 
+static
 int brands_user_response_precompute( BRANDS* b ) {
     EXCEPTION;
     BIGNUM* tmp = NULL;
     int i;
 
     if ( !b ) { THROW( CREDLIB_NULL_PTR ); }
-    if ( b->state != brands_req || b->issuer ) { 
-	THROW( CREDLIB_CALL_SEQUENCE ); 
+    if ( b->state != brands_req || b->issuer ) {
+	THROW( CREDLIB_CALL_SEQUENCE );
     }
-    
+
     /* now we know know x_1 .. x_n */
 
     TRYM( b->h = BN_new() );
@@ -328,7 +330,7 @@ int brands_user_response_precompute( BRANDS* b ) {
     TRYL( BN_mod_mul( tmp, b->g[0], b->h, b->params->p, b->ctx ) );
 
     /* DELETE h */
-    BN_free( b->h ); b->h = NULL;	
+    BN_free( b->h ); b->h = NULL;
 
     /* h' = tmp^alpha */
     TRYL( BN_mod_exp( b->hp, tmp, b->x[0], b->params->p, b->ctx ) );
@@ -339,7 +341,7 @@ int brands_user_response_precompute( BRANDS* b ) {
     TRYL( BN_mod_inverse( b->inv_alpha, b->x[0], b->params->q, b->ctx ) );
     TRACE( PRINT( "ialpha = ", b->inv_alpha ) );
     /* DELETE alpha */
-    BN_free( b->x[0] ); b->x[0] = NULL;	
+    BN_free( b->x[0] ); b->x[0] = NULL;
 
     TRYM( b->beta = BN_new() );
     /* beta = g^alpha2.(h_0.h)^alpha3 */
@@ -351,7 +353,7 @@ int brands_user_response_precompute( BRANDS* b ) {
     /* beta *= tmp */
     TRYL( BN_mod_mul( b->beta, b->beta, tmp, b->params->p, b->ctx ) );
     TRACE( PRINT( "beta = ", b->beta ) );
-    
+
     b->state = brands_resp_pre;
  cleanup:
     FINALLY( CREDLIB_CALL_SEQUENCE ) { RESET(); }
@@ -359,11 +361,11 @@ int brands_user_response_precompute( BRANDS* b ) {
     return ret;
 }
 
-int BRANDS_user_response( BRANDS* b, byte* in, int in_len, 
+int BRANDS_user_response( BRANDS* b, byte* in, int in_len,
 			  byte** out, int* out_len ) {
     EXCEPTION;
     int req_len, alt_len;
-    
+
     if ( !b || !in || !out ) { THROW( CREDLIB_NULL_PTR ); }
     if ( ( b->state != brands_req && b->state != brands_resp_pre )
 	 || b->issuer ) {
@@ -377,23 +379,23 @@ int BRANDS_user_response( BRANDS* b, byte* in, int in_len,
     TRYIO_start( in );
     TRYIO( CREDLIB_read_bn( ptr, &b->s ) );
     TRACE( PRINT( "is = ", b->s ) );
-    
+
     TRYM( b->gamma = BN_new() );
     /* gamma = beta.s */
     TRYL( BN_mod_mul( b->gamma, b->beta, b->s, b->params->p, b->ctx ) ) ;
     TRACE( PRINT( "gamma = ", b->gamma ) );
 
     /* DELETE beta */
-    BN_free( b->beta ); b->beta = NULL;	
+    BN_free( b->beta ); b->beta = NULL;
 
     /* u' = SHA1(h'||gamma) mod q */
     TRYM( b->up = BN_new() );
-    TRY( CREDLIB_mod_hash( b->up, b->hp, b->gamma, NULL, 0, 
+    TRY( CREDLIB_mod_hash( b->up, b->hp, b->gamma, NULL, 0,
 			   b->params->q, b->ctx ) );
     TRACE( PRINT( "up = ", b->up ) );
 
     /* DELETE gamma */
-    BN_free( b->gamma ); b->gamma = NULL;	
+    BN_free( b->gamma ); b->gamma = NULL;
 
     /* u = u' - alpha2 */
     TRYM( b->u = BN_new() );
@@ -401,7 +403,7 @@ int BRANDS_user_response( BRANDS* b, byte* in, int in_len,
     TRACE( PRINT( "u = ", b->u ) );
 
     /* DELETE alpha2 */
-    BN_free( b->alpha2 ); b->alpha2 = NULL;	
+    BN_free( b->alpha2 ); b->alpha2 = NULL;
 
     req_len = CREDLIB_calc_bn( b->u );
     TRY( CREDLIB_out( out, &out_len, &alt_len, req_len ) );
@@ -420,7 +422,7 @@ int BRANDS_issuer_send_cert( BRANDS* b, byte* in, int in_len,
 			     byte** out, int* out_len ) {
     EXCEPTION;
     int req_len, alt_len;
-    
+
     if ( !b || !in || !out ) { THROW( CREDLIB_NULL_PTR ); }
     if ( b->state != brands_chal || !b->issuer ) {
 	THROW( CREDLIB_CALL_SEQUENCE );
@@ -441,7 +443,7 @@ int BRANDS_issuer_send_cert( BRANDS* b, byte* in, int in_len,
     /* v *= t */
     TRYL( BN_mod_mul( b->v, b->v, b->t, b->params->q, b->ctx ) );
     TRACE( PRINT( "v = ", b->v ) );
-    
+
     /* DELETE t */
     BN_free( b->t ); b->t = NULL;
 
@@ -460,7 +462,7 @@ int BRANDS_issuer_send_cert( BRANDS* b, byte* in, int in_len,
 
 int BRANDS_user_recv_cert( BRANDS *b, byte* in, int in_len ) {
     EXCEPTION;
-    
+
     if ( !b || !in ) { THROW( CREDLIB_NULL_PTR ); }
     if ( b->state != brands_resp || b->issuer ) {
 	THROW( CREDLIB_CALL_SEQUENCE );
@@ -476,7 +478,7 @@ int BRANDS_user_recv_cert( BRANDS *b, byte* in, int in_len ) {
     TRYL( BN_mod_add( b->vp, b->v, b->alpha3, b->params->q, b->ctx ) );
 
     /* DELETE alpha3 */
-    BN_free( b->alpha3 ); b->alpha3 = NULL;	
+    BN_free( b->alpha3 ); b->alpha3 = NULL;
 
     /* v' *= tmp */
     TRYL( BN_mod_mul( b->vp, b->vp, b->inv_alpha, b->params->q, b->ctx ) );
@@ -488,7 +490,7 @@ int BRANDS_user_recv_cert( BRANDS *b, byte* in, int in_len ) {
     return ret;
 }
 
-static 
+static
 int brands_user_verify( BRANDS* b ) {
     EXCEPTION;
     BIGNUM* tmp = NULL;
@@ -528,11 +530,11 @@ int BRANDS_user_attrib_show( BRANDS* b, uint_t attrib ) {
 	THROW( CREDLIB_CALL_SEQUENCE );
     }
 
-    if ( attrib > b->num_attribs-1 ) { 
-	THROW( CREDLIB_BRANDS_TOO_MANY_ATTRIBS ); 
+    if ( attrib > b->num_attribs-1 ) {
+	THROW( CREDLIB_BRANDS_TOO_MANY_ATTRIBS );
     }
 
-    if ( !b->show ) { 
+    if ( !b->show ) {
 	b->show = CREDLIB_malloc( sizeof(bool_t)*b->num_attribs );
 	/* by default show nothing */
 	for ( i = 0; i < b->num_attribs; i++ ) { b->show[i] = false; }
@@ -543,14 +545,14 @@ int BRANDS_user_attrib_show( BRANDS* b, uint_t attrib ) {
  cleanup:
     FINALLY( CREDLIB_CALL_SEQUENCE ) { RESET(); }
     return ret;
-} 
+}
 
 int BRANDS_user_attrib_show_array( BRANDS* b, bool_t* show, uint_t show_num ) {
     EXCEPTION;
     int i;
-    
+
     /* num_attribs includes alpha */
-    if ( show && show_num > b->num_attribs-1 ) { 
+    if ( show && show_num > b->num_attribs-1 ) {
 	THROW( CREDLIB_BRANDS_TOO_MANY_ATTRIBS );
     }
     if ( !b->show ) {
@@ -562,7 +564,7 @@ int BRANDS_user_attrib_show_array( BRANDS* b, bool_t* show, uint_t show_num ) {
     if ( show ) {
 	/* remember what was shown; if missing attribs assume not shown*/
 	b->show[0] = false;
-	for ( i = 0; i < show_num; i++ ) { 
+	for ( i = 0; i < show_num; i++ ) {
 	    b->show[i+1] = show[i];
 	}
 	for ( i = show_num+1; i < b->num_attribs; i++ ) {
@@ -613,24 +615,24 @@ int BRANDS_user_send_show( BRANDS* b, bool_t* show, uint_t show_num,
 	TRYL( BN_mod_mul( b->a, b->a, tmp, b->params->p, b->ctx ) );
     }
     TRACE( PRINT( "aprod = ", b->a ) );
-    
+
     /* a = SHA1( a ) */
     TRY( CREDLIB_mod_hash( b->a, b->a, NULL, NULL, 0, b->params->p, b->ctx ) );
     TRACE( printf( "# a = SHA1( aprod ) mod p\n" ) );
     TRACE( PRINT( "a = ", b->a ) );
-    
+
     /* c = SHA1( a||M||show[] ) mod q */
     show_out_len = CREDLIB_calc_bool_array_small( b->num_attribs, 1 );
     TRYM( show_out = CREDLIB_malloc( show_out_len ) );
     TRYIO_start( show_out );
-    TRYIO( CREDLIB_write_bool_array_small( show_out, b->show, 
+    TRYIO( CREDLIB_write_bool_array_small( show_out, b->show,
 					   b->num_attribs, 1 ) );
     if ( TRYIO_len( show_out ) != show_out_len ) {
 	THROW( CREDLIB_IO_INCONSISTENCY );
     }
 
     TRYM( b->c = BN_new() );
-    TRY( CREDLIB_mod_hash( b->c, b->a, b->M, show_out, show_out_len, 
+    TRY( CREDLIB_mod_hash( b->c, b->a, b->M, show_out, show_out_len,
 			   b->params->p, b->ctx ) );
     TRACE( PRINT( "c = ", b->c ) );
 
@@ -651,7 +653,7 @@ int BRANDS_user_send_show( BRANDS* b, bool_t* show, uint_t show_num,
 	    /* r_i = c.x_i */
 	    TRYL( BN_mod_mul( b->r[i], b->c, b->x[i], b->params->q, b->ctx ) );
 	    /* r_i += w_i */
-	    TRYL( BN_mod_add( b->r[i], b->r[i], b->w[i], b->params->q, 
+	    TRYL( BN_mod_add( b->r[i], b->r[i], b->w[i], b->params->q,
 			      b->ctx ) );
 	    TRACE( printf( "r[%d] = ", i ); PRINT( "", b->r[i] ) );
 	}
@@ -702,7 +704,7 @@ int BRANDS_user_send_show( BRANDS* b, bool_t* show, uint_t show_num,
     return ret;
 }
 
-static 
+static
 int brands_verifier_verify( BRANDS* b ) {
     EXCEPTION;
     BIGNUM* tmp = NULL;
@@ -718,17 +720,17 @@ int brands_verifier_verify( BRANDS* b ) {
     show_out_len = CREDLIB_calc_bool_array_small( b->num_attribs, 1 );
     TRYM( show_out = CREDLIB_malloc( show_out_len ) );
     TRYIO_start( show_out );
-    TRYIO( CREDLIB_write_bool_array_small( show_out, b->show, 
+    TRYIO( CREDLIB_write_bool_array_small( show_out, b->show,
 					   b->num_attribs, 1 ) );
     if ( TRYIO_len( show_out ) != show_out_len ) {
 	THROW( CREDLIB_IO_INCONSISTENCY );
     }
-    
+
     /* c = SHA1( a||M||show[] ) mod q */
-    TRY( CREDLIB_mod_hash( b->c, b->a, b->M, show_out, show_out_len, 
+    TRY( CREDLIB_mod_hash( b->c, b->a, b->M, show_out, show_out_len,
 			   b->params->q, b->ctx ) );
     TRACE( PRINT( "tc = ", b->c ) );
-    
+
     TRYM( tmp = BN_new() );
     TRYM( tmp2 = BN_new() );
 
@@ -820,7 +822,7 @@ int BRANDS_verifier_recv_show( BRANDS* b, byte* in, int in_len ) {
 	    TRACE( printf( "ir[%d] = ", i ); PRINT( "", b->r[i] ) )
  	}
     }
-    
+
     /* u' =? SHA1( h' || (g^u'.h'^v' mod p) ) mod q */
 
     TRY( brands_user_verify( b ) );
@@ -834,9 +836,9 @@ int BRANDS_verifier_recv_show( BRANDS* b, byte* in, int in_len ) {
 
 int BRANDS_verify( BRANDS* b ) {
     EXCEPTION;
-    
+
     if ( !b ) { THROW( CREDLIB_NULL_PTR ); }
-    
+
     switch ( b->state ) {
     case brands_cred: TRY( brands_user_verify( b ) ); break;
     case brands_show: TRY( brands_verifier_verify( b ) ); break;
@@ -851,7 +853,7 @@ int BRANDS_verify( BRANDS* b ) {
 
 int BRANDS_export( BRANDS* b, byte** out, int out_len ) {
     EXCEPTION;
-    
+
     THROW( CREDLIB_UNIMPLEMENTED );
     if ( !b || !out ) { THROW( CREDLIB_NULL_PTR ); }
     switch ( b->state ) {
@@ -904,7 +906,7 @@ int BRANDS_precompute( BRANDS* b ) {
 
     switch ( b->state ) {
     case brands_key:
-	if ( b->issuer ) { 
+	if ( b->issuer ) {
 	} else {
 	    TRY( brands_user_request_precompute( b ) );
 	}
@@ -939,7 +941,7 @@ int BRANDS_test( int key_size, int attribs, bool_t precompute ) {
     /* ISSUER: key gen */
     TRYM( issuer = BRANDS_new() );
     TRY( BRANDS_key_generate( issuer, NULL, key_size, attribs ) );
-    
+
     /* USER: create a credential from working with this issuer */
     TRYM( cred = BRANDS_new() );
     TRY( BRANDS_key_set( cred, issuer ) );
@@ -955,7 +957,7 @@ int BRANDS_test( int key_size, int attribs, bool_t precompute ) {
 	    }
 	}
     }
-    
+
     /* USER -> ISSUER: request cred */
     if ( precompute ) { TRY( BRANDS_precompute( cred ) ); }
     TRY( BRANDS_user_request( cred, &req, &req_len ) );
