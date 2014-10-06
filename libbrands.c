@@ -868,34 +868,212 @@ int BRANDS_export( BRANDS* b, byte** out, int out_len ) {
 
 /* unimplemented */
 
-int BRANDS_save( BRANDS* b, byte** out, int out_len ) {
+int BRANDS_load(BRANDS** out,  byte* in, int inlen ) {
+    BRANDS* b = NULL;
+    char tmp;
     EXCEPTION;
 
-    THROW( CREDLIB_UNIMPLEMENTED );
+    if ( !in || inlen<=0 ) { THROW( CREDLIB_NULL_PTR ); }
+    TRYM( b = BRANDS_new() );
+    TRYIO_start( in );
+    TRYIO( CREDLIB_read( ptr, &tmp, 1 ) );
+    b->issuer = tmp;
+    TRYIO( CREDLIB_read( ptr, &tmp, 1 ) );
+    b->state = tmp;
+    TRYIO( CREDLIB_read_uint16( ptr, b->num_attribs ) );
+    // if b->state == brands_key ???
+    b->params = DSA_new();
+    if (!b->params) { THROW( CREDLIB_OUT_OF_MEMORY ); }
+    TRYIO( CREDLIB_read_bn( ptr, &b->params->p ) );
+    TRYIO( CREDLIB_read_bn( ptr, &b->params->q ) );
+    TRYIO( CREDLIB_read_bn( ptr, &b->params->g ) );
+    TRYIO( CREDLIB_read_bn_array( ptr, &b->g, &b->num_attribs, 0 ) );
+    switch ( b->state ) {
+    case brands_key:
+        if ( b->issuer ) {
+            TRYIO( CREDLIB_read_bn_array( ptr, &b->y, &b->num_attribs, 0 ) );
+        }
+        break;
+    case brands_req: 		/* load after user request  */
+       TRYIO( CREDLIB_read_bn_array( ptr, &b->x, &b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->alpha2 ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->alpha3 ) );
+       break;
+    case brands_resp:		/* load after user response */
+       TRYIO( CREDLIB_read_bn_array( ptr, &b->x, &b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->alpha3 ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->hp ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->s ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->u ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->up ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->inv_alpha ) );
+       break;
+    case brands_cred:		/* save user credential */
+       TRYIO( CREDLIB_read_bn_array( ptr, &b->x, &b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->hp ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->s ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->u ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->up ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->v ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->vp ) );
+       TRYIO( CREDLIB_read_bn( ptr, &b->inv_alpha ) );
+       break;
+    default:
+        THROW( CREDLIB_CALL_SEQUENCE );
+        break;
+    }
+
+    if ( TRYIO_len( in ) != inlen ) { THROW( CREDLIB_IO_INCONSISTENCY ); }
+    *out = b;
+ cleanup:
+    FINALLY( CREDLIB_CALL_SEQUENCE ) { BRANDS_free(b); RESET(); }
+    FINALLY( CREDLIB_OUT_OF_MEMORY ) { BRANDS_free(b); RESET(); }
+    FINALLY( CREDLIB_IO_INCONSISTENCY ) { BRANDS_free(b); RESET(); }
+    return ret;
+}
+
+int BRANDS_save( BRANDS* b, byte** out, int *out_len ) {
+    int req_len, alt_len;
+    EXCEPTION;
+
+    //THROW( CREDLIB_UNIMPLEMENTED );
     if ( !b || !out ) { THROW( CREDLIB_NULL_PTR ); }
+
     switch ( b->state ) {
     case brands_key:
 	if ( b->issuer ) {
 	    /* save issuer private key */
+       req_len = 1 + 1 + 2 +
+           CREDLIB_calc_bn( b->params->p ) +
+           CREDLIB_calc_bn( b->params->q ) +
+           CREDLIB_calc_bn( b->params->g ) +
+           CREDLIB_calc_bn_array( b->y, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn_array( b->g, b->num_attribs, 0 );
+       TRY( CREDLIB_out( out, &out_len, &alt_len, req_len ) );
+       TRYIO_start( *out );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->issuer, 1 ) );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->state, 1 ) );
+       TRYIO( CREDLIB_write_uint16( ptr, b->num_attribs ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->p ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->q ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->g ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->g, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->y, b->num_attribs, 0 ) );
 	} else {
 	    /* save issuer public key */
+       req_len = 1 + 1 + 2 +
+           CREDLIB_calc_bn( b->params->p ) +
+           CREDLIB_calc_bn( b->params->q ) +
+           CREDLIB_calc_bn( b->params->g ) +
+           CREDLIB_calc_bn_array( b->g, b->num_attribs, 0 );
+       TRY( CREDLIB_out( out, &out_len, &alt_len, req_len ) );
+       TRYIO_start( *out );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->issuer, 1 ) );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->state, 1 ) );
+       TRYIO( CREDLIB_write_uint16( ptr, b->num_attribs ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->p ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->q ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->g ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->g, b->num_attribs, 0 ) );
 	}
 	break;
     case brands_req: 		/* save after user request  */
+       req_len = 1 + 1 + 2 +
+           CREDLIB_calc_bn( b->params->p ) +
+           CREDLIB_calc_bn( b->params->q ) +
+           CREDLIB_calc_bn( b->params->g ) +
+           CREDLIB_calc_bn_array( b->g, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn_array( b->x, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn( b->alpha2 ) +
+           CREDLIB_calc_bn( b->alpha3 );
+       TRY( CREDLIB_out( out, &out_len, &alt_len, req_len ) );
+       TRYIO_start( *out );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->issuer, 1 ) );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->state, 1 ) );
+       TRYIO( CREDLIB_write_uint16( ptr, b->num_attribs ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->p ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->q ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->g ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->g, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->x, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->alpha2 ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->alpha3 ) );
 	break;
     case brands_resp:		/* save after user response */
+       req_len = 1 + 1 + 2 +
+           CREDLIB_calc_bn( b->params->p ) +
+           CREDLIB_calc_bn( b->params->q ) +
+           CREDLIB_calc_bn( b->params->g ) +
+           CREDLIB_calc_bn_array( b->g, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn_array( b->x, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn( b->alpha3 ) +
+           CREDLIB_calc_bn( b->hp ) +
+           CREDLIB_calc_bn( b->s ) +
+           CREDLIB_calc_bn( b->u ) +
+           CREDLIB_calc_bn( b->up ) +
+           CREDLIB_calc_bn( b->inv_alpha );
+       TRY( CREDLIB_out( out, &out_len, &alt_len, req_len ) );
+       TRYIO_start( *out );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->issuer, 1 ) );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->state, 1 ) );
+       TRYIO( CREDLIB_write_uint16( ptr, b->num_attribs ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->p ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->q ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->g ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->g, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->x, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->alpha3 ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->hp ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->s ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->u ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->up ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->inv_alpha ) );
 	break;
     case brands_cred:		/* save user credential */
+       req_len = 1 + 1 + 2 +
+           CREDLIB_calc_bn( b->params->p ) +
+           CREDLIB_calc_bn( b->params->q ) +
+           CREDLIB_calc_bn( b->params->g ) +
+           CREDLIB_calc_bn_array( b->g, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn_array( b->x, b->num_attribs, 0 ) +
+           CREDLIB_calc_bn( b->hp ) +
+           CREDLIB_calc_bn( b->s ) +
+           CREDLIB_calc_bn( b->u ) +
+           CREDLIB_calc_bn( b->up ) +
+           CREDLIB_calc_bn( b->v ) +
+           CREDLIB_calc_bn( b->vp ) +
+           CREDLIB_calc_bn( b->inv_alpha );
+       TRY( CREDLIB_out( out, &out_len, &alt_len, req_len ) );
+       TRYIO_start( *out );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->issuer, 1 ) );
+       TRYIO( CREDLIB_write( ptr, (char*) &b->state, 1 ) );
+       TRYIO( CREDLIB_write_uint16( ptr, b->num_attribs ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->p ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->q ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->params->g ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->g, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn_array( ptr, b->x, b->num_attribs, 0 ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->hp ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->s ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->u ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->up ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->v ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->vp ) );
+       TRYIO( CREDLIB_write_bn( ptr, b->inv_alpha ) );
 	break;
-    case brands_chal:		/* save after issuer challenge */
-	break;
+   // case brands_chal:		/* save after issuer challenge */
+	//break;
     case brands_show:		/* save verifier show */
     case brands_undef:		/*  */
-    default: break;
+    default:
+	THROW( CREDLIB_CALL_SEQUENCE );
+	break;
     }
+    if ( TRYIO_len( *out ) != req_len ) { THROW( CREDLIB_IO_INCONSISTENCY ); }
+    *out_len = req_len;
 
  cleanup:
-    FINALLY( CREDLIB_UNIMPLEMENTED ) { RESET(); } /* pass error out */
+    FINALLY( CREDLIB_IO_INCONSISTENCY ) { RESET(); } /* pass error out */
     return ret;
 }
 
@@ -935,6 +1113,8 @@ int BRANDS_test( int key_size, int attribs, bool_t precompute ) {
     int cert_len;
     byte* show = NULL;
     int show_len;
+    byte* out = NULL;
+    int out_len;
 
     TRACE( printf( "ibase=obase=16\n" ) );
 
@@ -942,9 +1122,18 @@ int BRANDS_test( int key_size, int attribs, bool_t precompute ) {
     TRYM( issuer = BRANDS_new() );
     TRY( BRANDS_key_generate( issuer, NULL, key_size, attribs ) );
 
+    BRANDS_save(issuer, &out, &out_len);
+    BRANDS* b2 = NULL;
+    if (!BRANDS_load(&b2, out,out_len)) { THROW( CREDLIB_IO_INCONSISTENCY ) ; };
+    BRANDS_free(b2);
+
     /* USER: create a credential from working with this issuer */
     TRYM( cred = BRANDS_new() );
     TRY( BRANDS_key_set( cred, issuer ) );
+
+    BRANDS_save(cred, &out, &out_len);
+    if (!BRANDS_load(&b2, out,out_len)) { THROW( CREDLIB_IO_INCONSISTENCY ) ; };
+    BRANDS_free(b2);
 
     /* USER: set some attributes */
 
@@ -961,14 +1150,29 @@ int BRANDS_test( int key_size, int attribs, bool_t precompute ) {
     /* USER -> ISSUER: request cred */
     if ( precompute ) { TRY( BRANDS_precompute( cred ) ); }
     TRY( BRANDS_user_request( cred, &req, &req_len ) );
+
+    BRANDS_save(cred, &out, &out_len);
+    if (!BRANDS_load(&b2, out,out_len)) { THROW( CREDLIB_IO_INCONSISTENCY ) ; };
+    BRANDS_free(b2);
+
     /* USER <- ISSUER: challenge  */
     TRY( BRANDS_issuer_challenge( issuer, req, req_len, &chal, &chal_len ) );
     /* USER -> ISSUER: response */
     if ( precompute ) { TRY( BRANDS_precompute( cred ) ); }
     TRY( BRANDS_user_response( cred, chal, chal_len, &resp, &resp_len ) );
+
+    BRANDS_save(cred, &out, &out_len);
+    if (!BRANDS_load(&b2, out,out_len)) { THROW( CREDLIB_IO_INCONSISTENCY ) ; };
+    BRANDS_free(b2);
+
     /* USER <- ISSUER: (blind) cert  */
     TRY( BRANDS_issuer_send_cert( issuer, resp, resp_len, &cert, &cert_len ) );
     TRY( BRANDS_user_recv_cert( cred, cert, cert_len ) );
+
+    BRANDS_save(cred, &out, &out_len);
+    if (!BRANDS_load(&b2, out,out_len)) { THROW( CREDLIB_IO_INCONSISTENCY ) ; };
+    BRANDS_free(b2);
+
     /* USER: re-verify (optional, already done by user_recv_cert) */
     TRY( BRANDS_verify( cred ) ); /* verifies cert */
 
