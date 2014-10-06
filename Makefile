@@ -1,8 +1,8 @@
-CREDLIB_VERS = 0.02
+CREDLIB_VERS = 0.09
 
 INSTALL_PATH = /usr/bin
 MAN_INSTALL_PATH = /usr/share/man/man1
-DOC_INSTALL_PATH = /usr/share/doc/hashcash-$(CREDLIB_VERS)
+DOC_INSTALL_PATH = /usr/share/doc/credlib-$(CREDLIB_VERS)
 
 INSTALL = install
 POD2MAN = pod2man
@@ -16,7 +16,7 @@ MSLIB = mslib
 
 COPT_DEBUG = -g
 COPT_GENERIC = -O3
-COPT_GNU = -O3 -funroll-loops
+COPT_GNU = -O3 -funroll-loops -fPIC
 COPT_X86 = -O3 -funroll-loops -march=i386 -mcpu=pentium -mmmx \
 	-D_REENTRANT -D_THREAD_SAFE -fPIC
 COPT_MINGW = -O3 -funroll-loops -march=i386 -mcpu=pentium -mmmx \
